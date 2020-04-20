@@ -42,10 +42,7 @@ def parse_args(extra_args_provider=None, defaults={},
         parser = extra_args_provider(parser)
 
     # Parse.
-    if ignore_unknown_args:
-        args, _ = parser.parse_known_args()
-    else:
-        args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     # Set input defaults.
     for key in defaults:
