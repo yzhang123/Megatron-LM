@@ -548,6 +548,7 @@ class Attention(MegatronModule, ABC):
         attention_bias: Optional[Tensor] = None,
         packed_seq_params: Optional[PackedSeqParams] = None,
         sequence_len_offset: Optional[int] = None,
+        return_dot_for_analysis: bool = False,
         *,
         inference_params: Optional[BaseInferenceContext] = None,
     ) -> Tuple[Tensor, Tensor]:
@@ -605,6 +606,26 @@ class Attention(MegatronModule, ABC):
         # self or cross attn.
         nvtx_range_push(suffix="qkv")
         query, key, value = self.get_query_key_value_tensors(hidden_states, key_value_states)
+        # query: [5, 1, 32, 128]
+        # key: [5, 1, 8, 128]
+        # value: [5, 1, 8, 128]
+        # torch.Size([5, 1, 4, 8, 128])
+        if return_dot_for_analysis and rotary_pos_emb is not None:
+            dot_for_analysis = {}
+            query_k_for_dot = query.unsqueeze(2).view((query.size()[0], query.size()[1], query.size()[2]//key.size()[2], -1, query.size()[-1]))
+            key0_for_dot = key.unsqueeze(2)[:1] # [1, 1, 1, 8, 128]
+
+            query_last_for_dot = query_k_for_dot[:1]
+            key_t_for_dot = key.unsqueeze(2)
+
+
+            dot_for_analysis["q_t_dot_k0"]  = (query_k_for_dot * key0_for_dot).reshape(query.size()[0], -1, query.size()[-1]).detach().cpu().float().numpy()
+
+            dot_for_analysis["q_last_dot_k_t"]  = (query_last_for_dot * key_t_for_dot).reshape(key.size()[0], -1, key.size()[-1]).detach().cpu().float().numpy()
+
+
+
+        
         nvtx_range_pop(suffix="qkv")
 
         # ===================================================
@@ -781,6 +802,9 @@ class Attention(MegatronModule, ABC):
         nvtx_range_push(suffix="linear_proj")
         output, bias = self.linear_proj(core_attn_out)
         nvtx_range_pop(suffix="linear_proj")
+
+        if return_dot_for_analysis:
+            return output, bias, dot_for_analysis
 
         return output, bias
 

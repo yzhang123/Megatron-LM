@@ -2,6 +2,9 @@
 
 from collections import OrderedDict
 from typing import Dict, Literal, Optional
+import pickle
+from pathlib import Path
+import os
 
 import torch
 from torch import Tensor
@@ -366,7 +369,7 @@ class GPTModel(LanguageModule):
         )
 
         # Run decoder.
-        hidden_states = self.decoder(
+        hidden_states, layers_dot_for_analysis = self.decoder(
             hidden_states=decoder_input,
             attention_mask=attention_mask,
             inference_context=inference_context,
@@ -375,8 +378,25 @@ class GPTModel(LanguageModule):
             rotary_pos_sin=rotary_pos_sin,
             packed_seq_params=packed_seq_params,
             sequence_len_offset=sequence_len_offset,
+            return_dot_for_analysis=True,
             **(extra_block_kwargs or {}),
         )
+        save_analysis_dir = os.getenv("SAVE_ANALYSIS_PATH")
+
+        # write list of numpy arrays to file
+
+        # if save_analysis_dir directory does not exist, create it
+        if not Path(save_analysis_dir).exists():
+            Path(save_analysis_dir).mkdir(exist_ok=True, parents=True)
+        save_dot_q_t_dot_k0_analysis_path = Path(save_analysis_dir) / "analysis_q_t_dot_k0.pkl"
+        print(f"q_t_dot_k0  at {save_dot_q_t_dot_k0_analysis_path}")
+        with open(save_dot_q_t_dot_k0_analysis_path, "wb") as f:
+            pickle.dump([x["q_t_dot_k0"] for x in layers_dot_for_analysis], f)
+
+        save_dot_q_last_dot_k_t_analysis_path = Path(save_analysis_dir) / "analysis_q_last_dot_k_t.pkl"
+        print(f"q_last_dot_k_t  at {save_dot_q_last_dot_k_t_analysis_path}")
+        with open(save_dot_q_last_dot_k_t_analysis_path, "wb") as f:
+            pickle.dump([x["q_last_dot_k_t"] for x in layers_dot_for_analysis], f)
 
         return self._postprocess(
             hidden_states=hidden_states,

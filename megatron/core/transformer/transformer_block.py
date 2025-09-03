@@ -473,6 +473,7 @@ class TransformerBlock(MegatronModule):
         inference_context: Optional[BaseInferenceContext] = None,
         packed_seq_params: Optional[PackedSeqParams] = None,
         sequence_len_offset: Optional[Tensor] = None,
+        return_dot_for_analysis: bool = False,
         *,
         inference_params: Optional[BaseInferenceContext] = None,
     ):
@@ -560,6 +561,7 @@ class TransformerBlock(MegatronModule):
                     use_inner_fp8_context=use_inner_fp8_context,
                 )
             else:
+                layers_dot_for_analysis = []
                 for l_no, layer in enumerate(self.layers):
                     inner_fp8_context = (
                         get_fp8_context(self.config, layer.layer_number - 1)
@@ -567,7 +569,7 @@ class TransformerBlock(MegatronModule):
                         else nullcontext()
                     )
                     with self.offload_context, inner_fp8_context:
-                        hidden_states, context = layer(
+                        layer_return= layer(
                             hidden_states=hidden_states,
                             attention_mask=attention_mask,
                             context=context,
@@ -579,7 +581,14 @@ class TransformerBlock(MegatronModule):
                             inference_context=inference_context,
                             packed_seq_params=packed_seq_params,
                             sequence_len_offset=sequence_len_offset,
+                            return_dot_for_analysis=return_dot_for_analysis,
                         )
+
+                        if return_dot_for_analysis:
+                            hidden_states, context, dot_for_analysis = layer_return
+                            layers_dot_for_analysis.append(dot_for_analysis)
+                        else:
+                            hidden_states, context = layer_return
 
                     if (
                         torch.is_grad_enabled()
@@ -603,6 +612,8 @@ class TransformerBlock(MegatronModule):
         if not self.pre_process and len(self.layers) == 0 and not self.final_layernorm:
             hidden_states = hidden_states.clone()
 
+        if return_dot_for_analysis:
+            return hidden_states, layers_dot_for_analysis
         return hidden_states
 
     def sharded_state_dict(

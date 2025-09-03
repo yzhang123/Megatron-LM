@@ -438,9 +438,15 @@ class TransformerLayer(MegatronModule, BaseTransformerLayer):
         This method calls the core computation of a transformer layer, including
         self-attention, cross-attention (if applicable), and feed-forward operations.
         """
-        hidden_states, context = self._forward_attention(*args, **kwargs)
+        if kwargs.get("return_dot_for_analysis", False):
+            hidden_states, context, dot_for_analysis = self._forward_attention(*args, **kwargs)
+        else:
+            hidden_states, context = self._forward_attention(*args, **kwargs)
         output = self._forward_mlp(hidden_states, kwargs.get("inference_context", None))
-        return output, context
+        if kwargs.get("return_dot_for_analysis", False):
+            return output, context, dot_for_analysis
+        else:
+            return output, context
 
     def _forward_attention(
         self,
@@ -455,6 +461,7 @@ class TransformerLayer(MegatronModule, BaseTransformerLayer):
         inference_context: Optional[Any] = None,
         packed_seq_params: Optional[PackedSeqParams] = None,
         sequence_len_offset: Optional[Tensor] = None,
+        return_dot_for_analysis: bool = False,
         *,
         inference_params: Optional[Any] = None,
     ):
@@ -508,7 +515,11 @@ class TransformerLayer(MegatronModule, BaseTransformerLayer):
             attention_bias=attention_bias,
             packed_seq_params=packed_seq_params,
             sequence_len_offset=sequence_len_offset,
+            return_dot_for_analysis=return_dot_for_analysis
         )
+        if return_dot_for_analysis:
+            dot_for_analysis = attention_output_with_bias[2]
+            attention_output_with_bias = attention_output_with_bias[:2]
         nvtx_range_pop(suffix="self_attention")
 
         if self.recompute_input_layernorm:
@@ -551,6 +562,8 @@ class TransformerLayer(MegatronModule, BaseTransformerLayer):
                 attention_output_with_bias, residual, self.hidden_dropout
             )
 
+        if return_dot_for_analysis:
+            return hidden_states, context, dot_for_analysis
         return hidden_states, context
 
     def _forward_mlp(self, hidden_states, inference_context=None):
